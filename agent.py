@@ -2,9 +2,25 @@
 import os
 import sys
 import time
+import queue
+import threading
 from dotenv import load_dotenv
 # Load .env file
 load_dotenv()
+
+# Global queue for streaming progress updates to the UI
+_progress_queue: queue.Queue = None
+
+def set_progress_queue(q: queue.Queue):
+    """Call this before invoking the agent to wire up live progress."""
+    global _progress_queue
+    _progress_queue = q
+
+def update_status(message: str):
+    """Push a status message. Goes to the queue if set, otherwise just logs."""
+    logger.info(message)
+    if _progress_queue is not None:
+        _progress_queue.put(message)
 
 # LangChain
 from langchain_openai import ChatOpenAI
@@ -40,7 +56,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         The search result
     """
     logger.info(f"Searching for {job_role} jobs in {region}")
-    print(f"Searching for {job_role} jobs in {region}")
+    update_status(f"Searching for {job_role} jobs in {region}...")
 
     # Implementation of the tool to extract linkedin jobs
     role_fixed = job_role.replace(" ","%20")
@@ -50,7 +66,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     logger.info(extract_result)
 
     # Limiting Content to Avoid Model Out of Token Error
-    extract_result = str(extract_result)[:30000]
+    extract_result = str(extract_result)[:20000]
 
     # Extract Links from Jobs 
     logger.info("Extracting Links from Jobs")
@@ -170,27 +186,36 @@ def main():
     print(final_ai_response)
 
 
-def invoke(user_input):
+def invoke(user_input, progress_queue: queue.Queue = None):
+    """
+    Run the agent. If progress_queue is provided, status updates from tools
+    are pushed into it live. The queue receives None as a sentinel when done.
+    """
+    set_progress_queue(progress_queue)
 
-    global STATUS_LOG
-    STATUS_LOG = []
+    result_container = {}
 
-    response = agent.invoke(
-        {"messages": HumanMessage(content=user_input)}
-    )
+    def _run():
+        response = agent.invoke(
+            {"messages": HumanMessage(content=user_input)}
+        )
+        messages = response["messages"]
+        final_ai_response = next(
+            msg.content
+            for msg in reversed(messages)
+            if isinstance(msg, AIMessage)
+        )
+        result_container["answer"] = final_ai_response
 
-    messages = response["messages"]
+    thread = threading.Thread(target=_run)
+    thread.start()
+    thread.join()
 
-    final_ai_response = next(
-        msg.content
-        for msg in reversed(messages)
-        if isinstance(msg, AIMessage)
-    )
+    # Signal the UI that we're done
+    if progress_queue is not None:
+        progress_queue.put(None)
 
-    return {
-        "answer": final_ai_response,
-        "status": STATUS_LOG
-    }
+    return result_container.get("answer", "")
 
 
 if __name__=="__main__":
