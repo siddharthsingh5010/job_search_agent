@@ -54,7 +54,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
 
     # Extract Links from Jobs 
     logger.info("Extracting Links from Jobs")
-    print("Extracting Links from Jobs")
+    update_status("Extracting Links from Jobs")
     llm1 = ChatOpenAI()
     response = llm1.invoke(f"""You are provided with an extracted content. You need to return the links of jobs found in this
     extracted result. Return all the linkds found in comma separted str. Don't miss any part of link. Also remove any training white spaces in starting or end
@@ -79,7 +79,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
 
     # Extract JD from each link
     logger.info("Extracting JD from each link")
-    print("Extracting JD from each link")
+    update_status("Extracting JD from each link")
 
     def chunk_list(lst, chunk_size=20):
         return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
@@ -97,7 +97,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
 
     # Check for Visa Sponserships 
     logger.info("Checking for Visa Sponserships Jobs")
-    print("Checking for Visa Sponserships Jobs")
+    update_status("Checking for Visa Sponserships Jobs")
     llm1 = ChatOpenAI()
     links = response.content
     visa_sponsored_jobs = {}
@@ -147,6 +147,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     logger.info(f"VISA_SPONSORED: {visa_sponsored_jobs}")
     logger.info(f"NO_VISA_SPONSORED: {no_visa_sponsored_jobs}") 
     final_result = f"Below are VISA Sponsored Jobs : {visa_sponsored_jobs}. And these are Non Visa Sponsored Jobs : {no_visa_sponsored_jobs}"
+    update_status("Finished")
     return final_result
 
 # Model
@@ -168,22 +169,29 @@ def main():
     )
     print(final_ai_response)
 
-def invoke(user_input:str):
-    response = agent.invoke({"messages":HumanMessage(content=user_input)})
+
+def invoke(user_input):
+
+    global STATUS_LOG
+    STATUS_LOG = []
+
+    response = agent.invoke(
+        {"messages": HumanMessage(content=user_input)}
+    )
+
     messages = response["messages"]
+
     final_ai_response = next(
         msg.content
         for msg in reversed(messages)
         if isinstance(msg, AIMessage)
     )
-    return final_ai_response
 
-    
-def test_tavily(lnk):
-    logger.info(lnk)
-    tavily_extract_client1 = TavilyExtract(extract_depth="basic", include_images=False)
-    extracted_jd = tavily_extract_client1.invoke({'urls':lnk})
-    logger.info(f"LINK : {lnk} \nJD:\n{extracted_jd}")
+    return {
+        "answer": final_ai_response,
+        "status": STATUS_LOG
+    }
+
 
 if __name__=="__main__":
     main()
