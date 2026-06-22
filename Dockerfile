@@ -15,7 +15,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
-COPY agent.py app.py logger.py ./
+COPY agent.py app.py logger.py .env ./
 
 # Expose Streamlit default port
 EXPOSE 8501
