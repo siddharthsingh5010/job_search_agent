@@ -23,7 +23,7 @@ EXPOSE 8501
 # Streamlit config: disable browser auto-open and set server address
 ENV STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
-    STREAMLIT_SERVER_PORT=80 \
+    STREAMLIT_SERVER_PORT=8502 \
     STREAMLIT_SERVER_BASE_URL_PATH=job_search_agent
 
 # Run the Streamlit app
