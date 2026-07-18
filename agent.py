@@ -119,9 +119,10 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     logger.info("Checking for Visa Sponserships Jobs")
     update_status("Checking for Visa Sponserships Jobs")
     llm1 = ChatOpenAI()
-    links = response.content
     visa_sponsored_jobs = {}
     no_visa_sponsored_jobs = {}
+    # Store intermediate results for the judge pass
+    classified_jobs = []
     for row in extracted_jds:
         link = row['url']
         title = row['title']
@@ -171,12 +172,71 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         logger.info(f"LINK : {link} \nTITLE : {title} \nRESPONSE:{res}")
         res = json.loads(res)
         visa_flag = res['visa_flag']
-        if visa_flag=='visa_sponsorship':
-            visa_sponsored_jobs[title]= link
-        else:
-            no_visa_sponsored_jobs[title]= link
+        reference_paragraph = res.get('reference_paragraph', '')
+        classified_jobs.append({
+            'title': title,
+            'link': link,
+            'visa_flag': visa_flag,
+            'reference_paragraph': reference_paragraph,
+        })
     
-    # LLM As Judge
+    # LLM As Judge — verify the visa_flag against the reference_paragraph and correct if needed
+    logger.info("Running LLM-as-Judge to verify visa flag classifications")
+    update_status("Running LLM-as-Judge to verify classifications...")
+    llm_judge = ChatOpenAI(model="gpt-4o")
+    for job in classified_jobs:
+        judge_response = llm_judge.invoke(f"""You are a strict visa sponsorship classification judge.
+
+You will be given:
+- A visa_flag classification: either "visa_sponsorship" or "no_visa_sponsorship"
+- A reference_paragraph extracted from a job description that was used to make that classification
+
+Your task:
+1. Read the reference_paragraph carefully
+2. Decide if the visa_flag is CORRECT or INCORRECT based solely on the reference_paragraph
+3. If incorrect, provide the corrected visa_flag
+
+RULES for visa_sponsorship:
+- The paragraph must explicitly mention visa sponsorship, visa support, or help with work permits/relocation visas
+- Vague statements about "welcoming international candidates" without visa support do NOT count
+- Only classify as visa_sponsorship if it is clearly and explicitly stated
+
+RULES for no_visa_sponsorship:
+- If the paragraph mentions right-to-work requirements, no sponsorship available, or says nothing about visa support
+- If the reference_paragraph is empty or irrelevant, default to no_visa_sponsorship
+
+visa_flag: {job['visa_flag']}
+reference_paragraph: {job['reference_paragraph']}
+
+OUTPUT FORMAT (JSON only, no extra text):
+{{
+    "original_flag": "{job['visa_flag']}",
+    "corrected_flag": "visa_sponsorship or no_visa_sponsorship",
+    "is_correct": true or false,
+    "judge_reasoning": "brief explanation"
+}}
+""")
+        try:
+            judge_res = json.loads(judge_response.content)
+            corrected_flag = judge_res.get('corrected_flag', job['visa_flag'])
+            is_correct = judge_res.get('is_correct', True)
+            logger.info(
+                f"JUDGE — Title: {job['title']} | Original: {job['visa_flag']} | "
+                f"Corrected: {corrected_flag} | Match: {is_correct} | "
+                f"Reason: {judge_res.get('judge_reasoning', '')}"
+            )
+            if not is_correct:
+                update_status(f"Judge corrected '{job['title']}': {job['visa_flag']} → {corrected_flag}")
+            job['visa_flag'] = corrected_flag
+        except Exception as e:
+            logger.error(f"Judge parsing failed for {job['title']}: {e}")
+
+    # Build final dicts from judge-verified results
+    for job in classified_jobs:
+        if job['visa_flag'] == 'visa_sponsorship':
+            visa_sponsored_jobs[job['title']] = job['link']
+        else:
+            no_visa_sponsored_jobs[job['title']] = job['link']
     
     # Return the list of visa sponsored jobs
     logger.info(f"VISA_SPONSORED: {visa_sponsored_jobs}")
