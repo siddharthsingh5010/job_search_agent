@@ -15,10 +15,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source
-COPY agent.py app.py logger.py .env icon.png ./
+COPY agent.py app.py logger.py get_env.py s3_connector.py icon.png ./
 
 # Expose Streamlit default port
-EXPOSE 8501
+EXPOSE 8502
 
 # Streamlit config: disable browser auto-open and set server address
 ENV STREAMLIT_SERVER_HEADLESS=true \
@@ -26,5 +26,5 @@ ENV STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_SERVER_PORT=8502 \
     STREAMLIT_SERVER_BASE_URL_PATH=job-search-agent
 
-# Run the Streamlit app
-CMD ["streamlit", "run", "app.py"]
+# Run Streamlit App
+CMD ["sh", "-c", "python3 get_env.py && streamlit run app.py"]
