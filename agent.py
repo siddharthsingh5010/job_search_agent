@@ -5,6 +5,7 @@ import time
 import queue
 import threading
 from dotenv import load_dotenv
+
 # Load .env file
 load_dotenv()
 
@@ -63,7 +64,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     region_fixed = region.replace(" ","%20")
     url = f"https://www.linkedin.com/jobs/search?keywords={role_fixed}&location={region_fixed}&f_TPR=r86400"
     extract_result = tavily_extract_client.invoke({'urls':[url]})
-    logger.info(extract_result)
+    logger.info(f"EXTRACTED RESULTS FROM URL: \n {extract_result}")
 
     # Limiting Content to Avoid Model Out of Token Error
     extract_result = str(extract_result)[:20000]
@@ -80,7 +81,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         list_links = links.split(',')
     except:
         logger.info(f'ERROR: Converting Links {links}')
-    logger.info(list_links)
+    logger.info(f"EXTRACTED LINKS : \n {list_links}")
 
     # Fixing Links
     fixed_links = []
@@ -92,6 +93,9 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         except:
             pass
         fixed_links.append(lnk)
+
+    logger.info(f"FIXED EXTRACTED LINKS : \n {fixed_links}")
+
 
     # Extract JD from each link
     logger.info("Extracting JD from each link")
@@ -109,7 +113,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
             extracted_jds.extend(_jds['results'])
         except:
             logger.error("No JDS found")
-    logger.info(extracted_jds)
+    logger.info(f"ALL EXTRACTED JOB DESCRIPTIONS : \n {extracted_jds}")
 
     # Check for Visa Sponserships 
     logger.info("Checking for Visa Sponserships Jobs")
@@ -123,15 +127,20 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         title = row['title']
         jd = row['raw_content']
         response = llm1.invoke(f"""You are provided with a Job Description of a role. You need to go through the JD and look for if the company
-    provide visa sponsorship or hiring international talent etc. If Job Description is not in English then translate it to English first and look for the information.
+    provide Visa sponsorship or Visa Support for the role. If Job Description is not in English then translate it to English first and look for the information.
     
     STRICT RULES : visa_sponsorship :
     1. if company has mentioned that they can/would provide visa sponsorship for the candidate 
     2. if company has mentioned that they can help with visa for candidate
-    3. if company has mentioned that they welcome international candidates and can provide visa 
-    4. if company has mentioned that they can help candidate with work rights 
-    5. Only and Only if Visa Sponsorship is mentioned in the Job Description
+    3. if company has mentioned that they can help candidate with work rights 
+    4. Only and Only if Visa Sponsorship is mentioned in the Job Description
     then only the visa flag will be visa_sponsorship
+
+    Examples of Visa Sponsorhips -
+    1. We are providing Visa Sponsorship for this role to eligible candidates
+    2. Visa Sponsorship is available 
+    3. Visa Sponsorship is available for this role for eligible candidates
+    4. We can help with Visa Sponsorship for this role for eligible candidates
 
     STRICT RULES : no_visa_sponsorship rules :
     1. if company has not mentioned anything on visa sponsorship in job description
@@ -140,6 +149,15 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     4. if company has mentioned that they won't be able to provide visa sponsorship
     5. if the role is remote and don't have mention of visa sponsorship or work rights
     then visa flag will be no_visa_sponsorship.
+
+    Examples of No Visa Sponsorship -
+    1. Candidate must have right to work in UK
+    2. Work permit sponsorship is not provided
+    3. We are not able to provide Visa Sponsorship
+    4. This role is remote and we are not able to provide Visa Sponsorship
+    5. This role is remote and we are not able to help with work permits
+    6. We are looking for a talented Researcher in Mathematics, Computational Science, and Data Science to join our Research & Development team.
+    7. Based in the Netherlands with eligibility to work in the EU.
 
     Below is the job description {jd}
     OUTPUT FORMAT:
@@ -158,7 +176,8 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         else:
             no_visa_sponsored_jobs[title]= link
     
-
+    # LLM As Judge
+    
     # Return the list of visa sponsored jobs
     logger.info(f"VISA_SPONSORED: {visa_sponsored_jobs}")
     logger.info(f"NO_VISA_SPONSORED: {no_visa_sponsored_jobs}") 
