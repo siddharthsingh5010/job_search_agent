@@ -239,9 +239,45 @@ if question:
             if msg is None:              # sentinel — agent is done
                 status_box.update(label="Done!", state="complete")
                 break
-            st.write(msg)
+            # Intercept structured jobs data — don't print it as a progress message
+            if isinstance(msg, dict) and "__jobs_data__" in msg:
+                result_container["jobs_data"] = msg["__jobs_data__"]
+            else:
+                st.write(msg)
 
     thread.join()
 
-    st.subheader("Result")
+    # --- Visa Sponsored Results ---
+    st.subheader("✅ Visa Sponsored Jobs")
     st.markdown(result_container.get("answer", ""))
+
+    # --- Full Jobs Table ---
+    jobs_data = result_container.get("jobs_data", [])
+    if jobs_data:
+        import pandas as pd
+        st.subheader("📋 All Jobs Reviewed")
+
+        rows = []
+        for job in jobs_data:
+            visa_flag = job.get("visa_flag", "")
+            flag_label = "✅ Visa Sponsored" if visa_flag == "visa_sponsorship" else "❌ No Visa Sponsorship"
+            rows.append({
+                "Job Title": job.get('title', 'N/A'),
+                "Link": job.get('link', ''),
+                "Company": job.get("company_name", "Unknown"),
+                "Location": job.get("location", "Unknown"),
+                "Date Posted": job.get("date_posted", "Unknown"),
+                "Visa Flag": flag_label,
+            })
+
+        df = pd.DataFrame(rows)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Job Title": st.column_config.TextColumn("Job Title"),
+                "Link": st.column_config.LinkColumn("Link", display_text="Open ↗"),
+                "Visa Flag": st.column_config.TextColumn("Visa Flag"),
+            },
+        )

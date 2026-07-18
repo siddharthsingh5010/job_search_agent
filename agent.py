@@ -1,6 +1,7 @@
 # Generals
 import os
 import sys
+import re
 import time
 import queue
 import threading
@@ -62,7 +63,7 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     # Implementation of the tool to extract linkedin jobs
     role_fixed = job_role.replace(" ","%20")
     region_fixed = region.replace(" ","%20")
-    url = f"https://www.linkedin.com/jobs/search?keywords={role_fixed}&location={region_fixed}&f_TPR=r86400"
+    url = f"https://www.linkedin.com/jobs/search?keywords={role_fixed}&location={region_fixed}&f_TPR=r43200"
     extract_result = tavily_extract_client.invoke({'urls':[url]})
     logger.info(f"EXTRACTED RESULTS FROM URL: \n {extract_result}")
 
@@ -70,8 +71,8 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     extract_result = str(extract_result)[:20000]
 
     # Extract Links from Jobs 
-    logger.info("Extracting Links from Jobs")
-    update_status("Extracting Links from Jobs")
+    logger.info("Extracting LinkedIn links from posted jobs.")
+    update_status("Extracting LinkedIn links from posted jobs.")
     llm1 = ChatOpenAI()
     response = llm1.invoke(f"""You are provided with an extracted content. You need to return the links of jobs found in this
     extracted result. Return all the linkds found in comma separted str. Don't miss any part of link. Also remove any training white spaces in starting or end
@@ -98,8 +99,8 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
 
 
     # Extract JD from each link
-    logger.info("Extracting JD from each link")
-    update_status("Extracting JD from each link")
+    logger.info("Extracting Job Descriptions from each posted job.")
+    update_status("Extracting Job Descriptions from each posted job.")
 
     def chunk_list(lst, chunk_size=20):
         return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
@@ -116,8 +117,8 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
     logger.info(f"ALL EXTRACTED JOB DESCRIPTIONS : \n {extracted_jds}")
 
     # Check for Visa Sponserships 
-    logger.info("Checking for Visa Sponserships Jobs")
-    update_status("Checking for Visa Sponserships Jobs")
+    logger.info("Checking for Visa Sponserships")
+    update_status("Checking for Visa Sponserships")
     llm1 = ChatOpenAI()
     visa_sponsored_jobs = {}
     no_visa_sponsored_jobs = {}
@@ -127,62 +128,246 @@ def get_jobs_linkedin(job_role:str, region: str)-> str:
         link = row['url']
         title = row['title']
         jd = row['raw_content']
-        response = llm1.invoke(f"""You are provided with a Job Description of a role. You need to go through the JD and look for if the company
-    provide Visa sponsorship or Visa Support for the role. If Job Description is not in English then translate it to English first and look for the information.
-    
-    STRICT RULES : visa_sponsorship :
-    1. if company has mentioned that they can/would provide visa sponsorship for the candidate 
-    2. if company has mentioned that they can help with visa for candidate
-    3. if company has mentioned that they can help candidate with work rights 
-    4. Only and Only if Visa Sponsorship is mentioned in the Job Description
-    then only the visa flag will be visa_sponsorship
 
-    Examples of Visa Sponsorhips -
-    1. We are providing Visa Sponsorship for this role to eligible candidates
-    2. Visa Sponsorship is available 
-    3. Visa Sponsorship is available for this role for eligible candidates
-    4. We can help with Visa Sponsorship for this role for eligible candidates
+        # Extract date posted directly from raw content via regex
+        # LinkedIn embeds it as "X hours ago", "X days ago" etc. (English or Spanish)
+        date_posted = "Unknown"
+        date_patterns = [
+            r'Hace\s+\d+\s+\w+',               # Spanish: "Hace 2 horas", "Hace 3 días"
+            r'\d+\s+hours?\s+ago',              # English: "2 hours ago"
+            r'\d+\s+days?\s+ago',               # English: "3 days ago"
+            r'\d+\s+weeks?\s+ago',              # English: "1 week ago"
+            r'\d+\s+months?\s+ago',             # English: "2 months ago"
+            r'Hace\s+\d+\s+semanas?',           # Spanish: "Hace 1 semana"
+            r'Hace\s+\d+\s+meses?',             # Spanish: "Hace 2 meses"
+        ]
+        for pattern in date_patterns:
+            match = re.search(pattern, jd, re.IGNORECASE)
+            if match:
+                date_posted = match.group(0).strip()
+                break
 
-    STRICT RULES : no_visa_sponsorship rules :
-    1. if company has not mentioned anything on visa sponsorship in job description
-    2. if company has specifically mentioned that candidate need to have right work permits for this role
-    3. if company has mentioned that they can't help with visa or work permits
-    4. if company has mentioned that they won't be able to provide visa sponsorship
-    5. if the role is remote and don't have mention of visa sponsorship or work rights
-    then visa flag will be no_visa_sponsorship.
+        response = llm1.invoke(f"""
+You are an expert information extraction system.
 
-    Examples of No Visa Sponsorship -
-    1. Candidate must have right to work in UK
-    2. Work permit sponsorship is not provided
-    3. We are not able to provide Visa Sponsorship
-    4. This role is remote and we are not able to provide Visa Sponsorship
-    5. This role is remote and we are not able to help with work permits
-    6. We are looking for a talented Researcher in Mathematics, Computational Science, and Data Science to join our Research & Development team.
-    7. Based in the Netherlands with eligibility to work in the EU.
+Your task is to analyze a Job Description (JD) and determine ONLY from the text explicitly present in the JD whether the employer offers visa sponsorship or visa support.
 
-    Below is the job description {jd}
-    OUTPUT FORMAT:
-    {{
-        "visa_flag" : visa flag indentified from JD
-        "reference_paragraph" : reference paragraph from where you got the visa information. Make sure you correctly pick up the visa information.
-        "confidence_score" : confidence score out of 100 on visa flag information.
-    }}
+If the Job Description is not in English, first translate it internally into English before performing the analysis.
+
+IMPORTANT PRINCIPLE
+
+Never infer visa sponsorship from company reputation, company size, international presence, relocation benefits, travel requirements, English language requirements, hiring country, or any other indirect clue.
+
+Only classify based on explicit statements in the Job Description.
+
+⸻
+
+Classification Rules
+
+There are only two possible outputs:
+
+* "visa_sponsorship"
+* "no_visa_sponsorship"
+
+⸻
+
+Rule 1 — visa_sponsorship
+
+Return "visa_sponsorship" ONLY if the JD explicitly states that the employer provides any of the following:
+
+* visa sponsorship
+* work visa sponsorship
+* visa support
+* work permit sponsorship
+* immigration sponsorship
+* immigration support
+* relocation with visa support
+* assistance obtaining a work visa
+* assistance obtaining a work permit
+* sponsorship for eligible candidates
+* sponsorship available
+* company will sponsor visas
+* company can provide visa sponsorship
+* company supports international applicants through visa sponsorship
+
+Examples:
+
+* “Visa sponsorship is available.”
+* “We sponsor work visas.”
+* “Eligible candidates will receive visa sponsorship.”
+* “We provide work permit sponsorship.”
+* “Immigration support is available.”
+* “Relocation package includes visa assistance.”
+
+If and only if one of these (or an equivalent explicit statement) appears in the JD, classify as:
+
+"visa_flag": "visa_sponsorship"
+
+⸻
+
+Rule 2 — no_visa_sponsorship
+
+Return "no_visa_sponsorship" if ANY of the following is true:
+
+A. No mention
+
+The JD does not mention visa sponsorship, visa support, work permits, immigration support, or work authorization.
+
+B. Existing work authorization required
+
+Examples:
+
+* Must have the right to work
+* Must be legally authorized to work
+* Must already have work authorization
+* Candidates must possess valid work rights
+* Eligibility to work in the EU
+* Eligibility to work in the UK
+* Right to work in Spain required
+* Applicant must already be authorized to work
+
+C. Explicit refusal
+
+Examples:
+
+* No visa sponsorship
+* Sponsorship is unavailable
+* We cannot sponsor visas
+* Work permit sponsorship is not provided
+* No immigration support
+* Applicants requiring sponsorship cannot be considered
+
+D. Remote jobs
+
+If the JD is remote and contains no explicit visa sponsorship statement.
+
+⸻
+
+DO NOT INFER
+
+The following DO NOT imply visa sponsorship:
+
+* multinational company
+* international company
+* global company
+* English language requirement
+* relocation package
+* relocation assistance
+* travel within Europe
+* travel internationally
+* hybrid role
+* remote role
+* headquarters in another country
+* company has offices worldwide
+* aerospace company
+* FAANG company
+* large company
+* company historically sponsors visas
+* recruiter may sponsor
+* company usually sponsors
+* previous hiring history
+
+None of these should ever result in "visa_sponsorship" unless the JD explicitly says so.
+
+⸻
+
+Confidence Score
+
+Return a confidence score between 0 and 100.
+
+Use the following guidance:
+
+100
+Explicit visa sponsorship statement.
+
+95
+Explicit statement that sponsorship is not provided.
+
+90
+Explicit requirement that candidate must already possess work authorization.
+
+85
+No visa-related information is mentioned anywhere in the JD.
+
+Do not assign low confidence merely because sponsorship is absent.
+
+⸻
+
+Reference Paragraph
+
+Return the exact paragraph or sentence from which the visa decision was made.
+
+If the JD contains no visa-related text, return:
+
+“No visa sponsorship or work authorization information found in the job description.”
+
+⸻
+
+Metadata Extraction
+
+Extract:
+
+* company_name
+* location
+Rules:
+
+* If unavailable, return “Unknown”.
+* Do not infer missing metadata.
+
+⸻
+
+Output
+
+Return ONLY valid JSON.
+
+{{
+  "visa_flag": "visa_sponsorship",
+  "reference_paragraph": "Exact sentence or 'No visa sponsorship or work authorization information found in the job description.'",
+  "confidence_score": 100,
+  "company_name": "Company name or Unknown",
+  "location": "City, Country or Unknown"
+}}
+
+Job Description:
+
+{jd}
     """)
         res = response.content
         logger.info(f"LINK : {link} \nTITLE : {title} \nRESPONSE:{res}")
-        res = json.loads(res)
-        visa_flag = res['visa_flag']
-        reference_paragraph = res.get('reference_paragraph', '')
+        # Strip markdown code fences if the LLM wraps the JSON in ```json ... ```
+        res_clean = res.strip()
+        if res_clean.startswith("```"):
+            res_clean = re.sub(r"^```(?:json)?\s*", "", res_clean)
+            res_clean = re.sub(r"\s*```$", "", res_clean).strip()
+        try:
+            res_parsed = json.loads(res_clean)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse LLM JSON for {title}: {e} | raw: {res}")
+            classified_jobs.append({
+                'title': title,
+                'link': link,
+                'visa_flag': 'no_visa_sponsorship',
+                'reference_paragraph': '',
+                'company_name': 'Unknown',
+                'location': 'Unknown',
+                'date_posted': 'Unknown',
+            })
+            continue
+        visa_flag = res_parsed.get('visa_flag', 'no_visa_sponsorship')
+        reference_paragraph = res_parsed.get('reference_paragraph', '')
         classified_jobs.append({
             'title': title,
             'link': link,
             'visa_flag': visa_flag,
             'reference_paragraph': reference_paragraph,
+            'company_name': res_parsed.get('company_name', 'Unknown'),
+            'location': res_parsed.get('location', 'Unknown'),
+            'date_posted': date_posted,  # extracted via regex, not LLM
         })
     
     # LLM As Judge — verify the visa_flag against the reference_paragraph and correct if needed
-    logger.info("Running LLM-as-Judge to verify visa flag classifications")
-    update_status("Running LLM-as-Judge to verify classifications...")
+    logger.info("Verifying visa flag classifications.")
+    update_status("Verifying visa flag classifications.")
     llm_judge = ChatOpenAI(model="gpt-4o")
     for job in classified_jobs:
         judge_response = llm_judge.invoke(f"""You are a strict visa sponsorship classification judge.
@@ -217,7 +402,11 @@ OUTPUT FORMAT (JSON only, no extra text):
 }}
 """)
         try:
-            judge_res = json.loads(judge_response.content)
+            judge_raw = judge_response.content.strip()
+            if judge_raw.startswith("```"):
+                judge_raw = re.sub(r"^```(?:json)?\s*", "", judge_raw)
+                judge_raw = re.sub(r"\s*```$", "", judge_raw).strip()
+            judge_res = json.loads(judge_raw)
             corrected_flag = judge_res.get('corrected_flag', job['visa_flag'])
             is_correct = judge_res.get('is_correct', True)
             logger.info(
@@ -240,9 +429,14 @@ OUTPUT FORMAT (JSON only, no extra text):
     
     # Return the list of visa sponsored jobs
     logger.info(f"VISA_SPONSORED: {visa_sponsored_jobs}")
-    logger.info(f"NO_VISA_SPONSORED: {no_visa_sponsored_jobs}") 
+    logger.info(f"NO_VISA_SPONSORED: {no_visa_sponsored_jobs}")
     final_result = f"Below are VISA Sponsored Jobs : {visa_sponsored_jobs}. And these are Non Visa Sponsored Jobs : {no_visa_sponsored_jobs}"
     update_status("Finished")
+
+    # Push structured jobs data to the progress queue so the UI can render the table
+    if _progress_queue is not None:
+        _progress_queue.put({"__jobs_data__": classified_jobs})
+
     return final_result
 
 # Model
