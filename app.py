@@ -4,6 +4,18 @@ import streamlit as st
 from agent import invoke
 import base64
 from pathlib import Path
+from s3_connector import S3Connector
+
+
+# Loading .env from S3 Bucket
+s3 = S3Connector()
+s3.connect()
+s3.download_file("env_v1", ".env")
+
+if os.path.exists(".env"):
+    pass
+else:
+    raise
 
 st.set_page_config(
     page_title="AI Powered Job Search Assistant",
