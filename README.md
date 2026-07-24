@@ -1,4 +1,4 @@
-# 🤖 AI Powered Job Search Assistant
+# 🤖 AI Powered Job Search Assistant.
 
 An intelligent job search assistant that scrapes LinkedIn for recent job postings, extracts job descriptions, and uses an LLM to identify which roles offer **visa sponsorship** — all through a custom-styled Streamlit UI.
 
