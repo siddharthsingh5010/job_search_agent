@@ -9,7 +9,7 @@ st.set_page_config(
     page_title="AI Powered Job Search Assistant",
     page_icon="🤖",
     layout="wide"
-)
+) 
 
 st.markdown(
     """
